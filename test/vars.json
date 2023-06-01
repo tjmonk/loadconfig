@@ -1,0 +1,107 @@
+{
+    "type":"loadconfig vars",
+    "version":"1.0",
+    "description":"Variables for the loadconfig example",
+    "modified":"01-Jun-2023",
+    "vars":
+    [
+        {
+            "name":"/sys/hw/id",
+            "type":"str",
+            "length":"128",
+            "shortname":"hardwareid",
+            "description":"Hardware ID"
+        },
+        {
+            "name":"/sys/hw/model",
+            "type":"str",
+            "length":"128",
+            "shortname":"modelnum",
+            "description":"Hardware Model Number"
+        },
+        {
+            "name":"/sys/hw/manufacturer",
+            "type":"str",
+            "length":"128",
+            "shortname":"manufacturer",
+            "description":"Hardware Manufacturer"
+        },
+        {
+            "name":"/sys/hw/cpu",
+            "type":"str",
+            "length":"32",
+            "shortname":"cpu",
+            "description":"Hardware CPU"
+        },
+        {
+            "name":"/sys/hw/rev",
+            "type":"str",
+            "length":"16",
+            "shortname":"hwrev",
+            "description":"Hardware Revision"
+        },
+        {
+            "name":"/sys/app/id",
+            "type":"str",
+            "length":"32",
+            "shortname":"appid",
+            "description":"Application Id"
+        },
+        {
+            "name":"/sys/app/name",
+            "type":"str",
+            "length":"64",
+            "shortname":"appname",
+            "description":"Application Name"
+        },
+        {
+            "name":"/sys/app/shortname",
+            "type":"str",
+            "length":"64",
+            "shortname":"shortname",
+            "description":"Application Short Name"
+        },
+        {
+            "name":"/sys/app/version",
+            "type":"str",
+            "length":"32",
+            "shortname":"appversion",
+            "description":"Application Version"
+        },
+        {
+            "name":"/sys/app/description",
+            "type":"str",
+            "length":"256",
+            "shortname":"appdesc",
+            "description":"Application Description"
+        },
+        {
+            "name":"/sys/app/guid",
+            "type":"str",
+            "length":"256",
+            "shortname":"appguid",
+            "description":"Application Globally Unique Identifier"
+        },
+        {
+            "name":"/sys/app/modified",
+            "type":"str",
+            "length":"32",
+            "shortname":"appdate",
+            "description":"Application Last Modified Date"
+        },
+        {
+            "name":"/sys/app/copyright",
+            "type":"str",
+            "length":"32",
+            "shortname":"appcopyright",
+            "description":"Application Copyright"
+        },
+        {
+            "name":"/sys/app/license",
+            "type":"str",
+            "length":"32",
+            "shortname":"applicense",
+            "description":"Application License Type"
+        }
+    ]
+}
