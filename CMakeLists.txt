@@ -7,8 +7,6 @@ project(loadconfig
     DESCRIPTION "Configuration Management utility"
 )
 
-find_library( LIB_VARSERVER varserver REQUIRED )
-
 add_executable( ${PROJECT_NAME}
 	src/loadconfig.c
 )
@@ -20,7 +18,7 @@ target_include_directories( ${PROJECT_NAME}
 target_link_libraries( ${PROJECT_NAME}
 	${CMAKE_THREAD_LIBS_INIT}
 	rt
-	${LIB_VARSERVER}
+	varserver
 )
 
 install(TARGETS ${PROJECT_NAME}
