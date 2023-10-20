@@ -1000,12 +1000,19 @@ static int ProcessVariableAssignment( LoadState *pState, char *pConfig )
     int result = EINVAL;
     char *pVar = NULL;
     char *pVal = NULL;
+    char *ch = " ";
 
     if ( ( pState != NULL ) &&
          ( pConfig != NULL ) )
     {
+        /* check if we have an = delimeter */
+        if ( strchr( pConfig, '=' ) != NULL )
+        {
+            ch = "=";
+        }
+
         /* get the variable and its value */
-        pVar = strtok_r( pConfig, " ", &pVal );
+        pVar = strtok_r( pConfig, ch, &pVal );
 
         if ( ( pVar != NULL ) &&
              ( pVal != NULL ) )
