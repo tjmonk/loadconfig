@@ -499,7 +499,7 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
     char *pConfigData;
     char *saveFileName;
     int saveLineNumber;
-    char *pFileName;
+    char *pFileName = NULL;
 
     if ( filename != NULL )
     {
@@ -626,7 +626,7 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
                 }
                 else
                 {
-                    LogError( pState, "Variable Expansion" );
+                    LogError( pState, "Variable Expansion error" );
                     result = rc;
                 }
 
@@ -1025,7 +1025,14 @@ static int ProcessVariableAssignment( LoadState *pState, char *pConfig )
             result = VAR_SetNameValue( pState->hVarServer, pVar, pVal );
             if( result != EOK )
             {
-                LogError( pState, "Variable assignment failed" );
+                if ( result == ENOENT )
+                {
+                    LogError( pState, "Variable not found" );
+                }
+                else
+                {
+                    LogError( pState, "Variable assignment failed" );
+                }
             }
         }
         else
