@@ -154,7 +154,7 @@ typedef struct loadState
         Private function declarations
 ============================================================================*/
 
-void main(int argc, char **argv);
+int main(int argc, char **argv);
 static int ProcessOptions( int argC, char *argV[], LoadState *pState );
 static void usage( char *cmdname );
 static int CreateWorkingBuffer( LoadState *pState );
@@ -169,6 +169,7 @@ static int ProcessRequireDirective( LoadState *pState, char *pFilename );
 static int ProcessIncludeDirDirective( LoadState *pState, char *pDirname );
 static int ProcessVariableAssignment( LoadState *pState, char *pConfig );
 void LogError( LoadState *pState, char *error );
+void LogVarError( LoadState *pState, char *varname, char *error );
 static char *GetConfigData( char *filename );
 static size_t GetFileSize( char *filename );
 static bool IsConfigFile( FILE *fp );
@@ -197,9 +198,10 @@ static char *ReadConfigData( FILE *fp, size_t n );
     @return none
 
 ============================================================================*/
-void main(int argc, char **argv)
+int main(int argc, char **argv)
 {
     LoadState state;
+    int result = EINVAL;
 
     /* clear the load state object */
     memset( &state, 0, sizeof( state ) );
@@ -227,7 +229,7 @@ void main(int argc, char **argv)
             state.required = true;
 
             /* Process the configuration file */
-            ProcessConfigFile( &state, state.pFileName );
+            result = ProcessConfigFile( &state, state.pFileName );
 
             /*! destroy the working buffer */
             DestroyWorkingBuffer(&state);
@@ -240,6 +242,8 @@ void main(int argc, char **argv)
         /* close the handle to the variable server */
         VARSERVER_Close( state.hVarServer );
     }
+
+    return ( result == EOK ) ? 0 : 1;
 }
 
 /*==========================================================================*/
@@ -537,7 +541,7 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
 
         if ( result != EOK )
         {
-            fprintf(stderr, "Failed to process %s\n", pFileName );
+            fprintf(stderr, "Processing incomplete: %s\n", pFileName );
         }
 
         free( pFileName );
@@ -620,7 +624,7 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
                     rc = ProcessConfigLine( pState, pState->workbuf );
                     if ( rc != EOK )
                     {
-                        LogError( pState, "Config error" );
+                        LogError( pState, "Config warning" );
                         result = rc;
                     }
                 }
@@ -1027,11 +1031,11 @@ static int ProcessVariableAssignment( LoadState *pState, char *pConfig )
             {
                 if ( result == ENOENT )
                 {
-                    LogError( pState, "Variable not found" );
+                    LogVarError( pState, pVar, "Variable not found" );
                 }
                 else
                 {
-                    LogError( pState, "Variable assignment failed" );
+                    LogVarError( pState, pVar, "Variable assignment failed" );
                 }
             }
         }
@@ -1076,6 +1080,53 @@ void LogError( LoadState *pState, char *error )
         fprintf( stderr,
                  "%s in %s on line %d\n",
                  error,
+                 pState->pFileName,
+                 pState->lineno );
+    }
+}
+
+/*==========================================================================*/
+/*  LogError                                                                */
+/*!
+    Log an error
+
+    The LogError function generates an error output
+
+    @param[in]
+        pState
+            pointer to the Load state which manages the current
+            loading context
+
+    @param[in]
+        varname
+            name of the variable
+
+    @param[in]
+        error
+            pointer to a NUL terminated error string to log
+
+============================================================================*/
+void LogVarError( LoadState *pState, char *varname, char *error )
+{
+    char *filename = "unknown";
+
+    if ( ( pState != NULL ) &&
+         ( error != NULL ) )
+    {
+        if( pState->pFileName != NULL )
+        {
+            filename = pState->pFileName;
+        }
+
+        if ( varname == NULL )
+        {
+            varname = "unknown variable";
+        }
+
+        fprintf( stderr,
+                 "%s: '%s' in %s on line %d\n",
+                 error,
+                 varname,
                  pState->pFileName,
                  pState->lineno );
     }
