@@ -474,6 +474,10 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
     if ( filename != NULL )
     {
         pFileName = strdup( filename );
+        if ( pFileName == NULL )
+        {
+            result = ENOMEM;
+        }
     }
 
     if ( ( pState != NULL ) &&
@@ -509,7 +513,10 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
         {
             fprintf(stderr, "Processing incomplete: %s\n", pFileName );
         }
+    }
 
+    if ( pFileName != NULL )
+    {
         free( pFileName );
     }
 
