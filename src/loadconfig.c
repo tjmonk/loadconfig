@@ -573,45 +573,49 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
                 /* replace the line break with a NUL terminator*/
                 pConfigData[i] = 0;
 
-                /* clear the working buffer and reposition
-                 * the write point to the start of the buffer */
-                lseek( pState->fd, 0, SEEK_SET );
-
-                /* perform expansion of variables within the config line */
-                /* i.e any variables in the form ${varname} will be replaced
-                 * with their values */
-                rc = TEMPLATE_StrToFile( pState->hVarServer,
-                                         &pConfigData[lineidx],
-                                         pState->fd);
-
-                /* Read back the transformed line to the working buffer
-                 */
-                if (rc == EOK)
+                /* do not process zero-length lines */
+                if ( i > lineidx )
                 {
+                    /* clear the working buffer and reposition
+                    * the write point to the start of the buffer */
                     lseek( pState->fd, 0, SEEK_SET );
-                    rc = read( pState->fd, pState->workbuf, pState->workbufSize );
-                    if (rc > 0)
-                    {
-                        /* put a terminating symbol just in case */
-                        pState->workbuf[rc] = 0;
-                        rc = EOK;
-                    }
-                }
 
-                if ( rc == EOK )
-                {
-                    /* process a configuration line */
-                    rc = ProcessConfigLine( pState, pState->workbuf );
-                    if ( rc != EOK )
+                    /* perform expansion of variables within the config line */
+                    /* i.e any variables in the form ${varname} will be replaced
+                    * with their values */
+                    rc = TEMPLATE_StrToFile( pState->hVarServer,
+                                            &pConfigData[lineidx],
+                                            pState->fd);
+
+                    if (rc == EOK)
                     {
-                        LogError( pState, "Config warning" );
+                        /* Read back the transformed line to the working buffer */
+                        lseek( pState->fd, 0, SEEK_SET );
+                        rc = read( pState->fd, pState->workbuf, pState->workbufSize );
+                        if (rc > 0)
+                        {
+                            /* put a terminating symbol just in case */
+                            pState->workbuf[rc] = 0;
+
+                            /* process a configuration line */
+                            rc = ProcessConfigLine( pState, pState->workbuf );
+                            if ( rc != EOK )
+                            {
+                                LogError( pState, "Config warning" );
+                                result = rc;
+                            }
+                        }
+                        else
+                        {
+                            LogError( pState, "Read back error" );
+                            result = rc;
+                        }
+                    }
+                    else
+                    {
+                        LogError( pState, "Variable Expansion error" );
                         result = rc;
                     }
-                }
-                else
-                {
-                    LogError( pState, "Variable Expansion error" );
-                    result = rc;
                 }
 
                 /* update the line index */
