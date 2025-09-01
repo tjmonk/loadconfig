@@ -583,9 +583,9 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
                 /* do not process zero-length lines */
                 if ( i > lineidx )
                 {
-                    /* clear the working buffer and reposition
-                    * the write point to the start of the buffer */
+                    /* reinitialize the file descriptor */
                     lseek( pState->fd, 0, SEEK_SET );
+                    ftruncate( pState->fd, 0 );
 
                     /* perform expansion of variables within the config line */
                     /* i.e any variables in the form ${varname} will be replaced
