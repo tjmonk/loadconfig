@@ -380,52 +380,19 @@ static int CreateWorkingBuffer( LoadState *pState )
         fd = shm_open(pState->clientname, O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
         if (fd != -1)
         {
-            /* extend shared memory object as by default
-               it is initialized with size 0 */
-            rc = ftruncate(fd, size );
-            if (rc != -1)
-            {
-                /* map shared memory to process address space */
-                workbuf = mmap( NULL,
-                                size ,
-                                PROT_WRITE,
-                                MAP_SHARED,
-                                fd,
-                                0);
-
-                if( workbuf != MAP_FAILED )
+                workbuf = calloc(1, size);
+                if (workbuf != NULL)
                 {
-                    /* populate the VarClient object */
                     pState->workbuf = workbuf;
                     pState->fd = fd;
-
-                    /* clear the working buffer */
-                    memset( workbuf, 0, size );
-
                     result = EOK;
                 }
                 else
                 {
-                    /* memory map failed */
                     pState->fd = -1;
-                    pState->workbuf = NULL;
                     close( fd );
                     result = errno;
                 }
-            }
-            else
-            {
-                pState->fd = -1;
-                pState->workbuf = NULL;
-                close( fd );
-                result = errno;
-            }
-        }
-        else
-        {
-            pState->fd = -1;
-            pState->workbuf = NULL;
-            result = errno;
         }
     }
 
@@ -456,9 +423,8 @@ static void DestroyWorkingBuffer( LoadState *pState )
     {
         if ( pState->workbuf != NULL )
         {
-            /* Unmap the shared memory object from the virtual
-             * address space of the loadconfig application */
-            munmap( pState->workbuf, pState->workbufSize );
+            /* free the working buffer */
+            free( pState->workbuf );
             pState->workbuf = NULL;
         }
 
@@ -508,6 +474,10 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
     if ( filename != NULL )
     {
         pFileName = strdup( filename );
+        if ( pFileName == NULL )
+        {
+            result = ENOMEM;
+        }
     }
 
     if ( ( pState != NULL ) &&
@@ -543,7 +513,10 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
         {
             fprintf(stderr, "Processing incomplete: %s\n", pFileName );
         }
+    }
 
+    if ( pFileName != NULL )
+    {
         free( pFileName );
     }
 
@@ -607,31 +580,49 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
                 /* replace the line break with a NUL terminator*/
                 pConfigData[i] = 0;
 
-                /* clear the working buffer and reposition
-                 * the write point to the start of the buffer */
-                lseek( pState->fd, 0, SEEK_SET );
-                memset( pState->workbuf, 0, pState->workbufSize );
-
-                /* perform expansion of variables within the config line */
-                /* i.e any variables in the form ${varname} will be replaced
-                 * with their values */
-                rc = TEMPLATE_StrToFile( pState->hVarServer,
-                                         &pConfigData[lineidx],
-                                         pState->fd);
-                if ( rc == EOK )
+                /* do not process zero-length lines */
+                if ( i > lineidx )
                 {
-                    /* process a configuration line */
-                    rc = ProcessConfigLine( pState, pState->workbuf );
-                    if ( rc != EOK )
+                    /* reinitialize the file descriptor */
+                    lseek( pState->fd, 0, SEEK_SET );
+                    ftruncate( pState->fd, 0 );
+
+                    /* perform expansion of variables within the config line */
+                    /* i.e any variables in the form ${varname} will be replaced
+                    * with their values */
+                    rc = TEMPLATE_StrToFile( pState->hVarServer,
+                                            &pConfigData[lineidx],
+                                            pState->fd);
+
+                    if (rc == EOK)
                     {
-                        LogError( pState, "Config warning" );
+                        /* Read back the transformed line to the working buffer */
+                        lseek( pState->fd, 0, SEEK_SET );
+                        rc = read( pState->fd, pState->workbuf, pState->workbufSize );
+                        if (rc > 0)
+                        {
+                            /* put a terminating symbol just in case */
+                            pState->workbuf[rc] = 0;
+
+                            /* process a configuration line */
+                            rc = ProcessConfigLine( pState, pState->workbuf );
+                            if ( rc != EOK )
+                            {
+                                LogError( pState, "Config warning" );
+                                result = rc;
+                            }
+                        }
+                        else
+                        {
+                            LogError( pState, "Read back error" );
+                            result = rc;
+                        }
+                    }
+                    else
+                    {
+                        LogError( pState, "Variable Expansion error" );
                         result = rc;
                     }
-                }
-                else
-                {
-                    LogError( pState, "Variable Expansion error" );
-                    result = rc;
                 }
 
                 /* update the line index */
