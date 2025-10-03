@@ -132,6 +132,9 @@ typedef struct loadState
     /*! required flag indicating if the config file is mandatory */
     bool required;
 
+    /*! dynamic mapping flag */
+    bool dynamicMapping;
+
     /*! working buffer file descriptor */
     int fd;
 
@@ -159,6 +162,8 @@ static int ProcessOptions( int argC, char *argV[], LoadState *pState );
 static void usage( char *cmdname );
 static int CreateWorkingBuffer( LoadState *pState );
 static void DestroyWorkingBuffer( LoadState *pState );
+static int CreateMemoryMap( LoadState *pState );
+static int DestroyMemoryMap( LoadState *pState );
 static int ProcessConfigFile( LoadState *pState, char *filename );
 static int ProcessConfigData( LoadState *pState, char *pConfigData );
 static int ProcessConfigLine( LoadState *pState, char *pConfigLine );
@@ -266,9 +271,10 @@ static void usage( char *cmdname )
     if( cmdname != NULL )
     {
         fprintf(stderr,
-                "usage: %s [-v] [-h]\n"
+                "usage: %s [-v] [-h] [-m] [-W <size>] -f <filename>\n"
                 " [-h] : display this help\n"
                 " [-v] : verbose output\n"
+                " [-m] : dynamic mapping of working buffer\n"
                 " [-W <size> ] : working buffer size\n"
                 " -f <filename> : configuration file\n",
                 cmdname );
@@ -303,7 +309,7 @@ static int ProcessOptions( int argC, char *argV[], LoadState *pState )
 {
     int c;
     int result = EINVAL;
-    const char *options = "hvf:w:";
+    const char *options = "hvf:w:m";
 
     if( ( pState != NULL ) &&
         ( argV != NULL ) )
@@ -318,6 +324,10 @@ static int ProcessOptions( int argC, char *argV[], LoadState *pState )
 
                 case 'h':
                     usage( argV[0] );
+                    break;
+
+                case 'm':
+                    pState->dynamicMapping = true;
                     break;
 
                 case 'f':
@@ -385,36 +395,31 @@ static int CreateWorkingBuffer( LoadState *pState )
             rc = ftruncate(fd, size );
             if (rc != -1)
             {
-                /* map shared memory to process address space */
-                workbuf = mmap( NULL,
-                                size ,
-                                PROT_WRITE,
-                                MAP_SHARED,
-                                fd,
-                                0);
-
-                if( workbuf != MAP_FAILED )
+                if ( pState->dynamicMapping == false )
                 {
-                    /* populate the VarClient object */
-                    pState->workbuf = workbuf;
                     pState->fd = fd;
 
-                    /* clear the working buffer */
-                    memset( workbuf, 0, size );
-
-                    result = EOK;
+                    /* perform static (one time) memory mapping */
+                    result = CreateMemoryMap( pState );
+                    if ( result != EOK )
+                    {
+                        /* mapping failed - give up */
+                        pState->fd = -1;
+                        pState->workbuf = NULL;
+                        close( fd );
+                    }
                 }
                 else
                 {
-                    /* memory map failed */
-                    pState->fd = -1;
+                    /* dynamic mapping - don't map the memory yet */
                     pState->workbuf = NULL;
-                    close( fd );
-                    result = errno;
+                    pState->fd = fd;
+                    result = EOK;
                 }
             }
             else
             {
+                /* failed to set memory map size */
                 pState->fd = -1;
                 pState->workbuf = NULL;
                 close( fd );
@@ -423,6 +428,7 @@ static int CreateWorkingBuffer( LoadState *pState )
         }
         else
         {
+            /* failed to create shared memory object */
             pState->fd = -1;
             pState->workbuf = NULL;
             result = errno;
@@ -438,7 +444,7 @@ static int CreateWorkingBuffer( LoadState *pState )
 }
 
 /*==========================================================================*/
-/*  DestroyWorkingBuffer                                                     */
+/*  DestroyWorkingBuffer                                                    */
 /*!
     Destroy the working buffer
 
@@ -458,14 +464,14 @@ static void DestroyWorkingBuffer( LoadState *pState )
         {
             /* Unmap the shared memory object from the virtual
              * address space of the loadconfig application */
-            munmap( pState->workbuf, pState->workbufSize );
-            pState->workbuf = NULL;
+            (void)DestroyMemoryMap( pState );
         }
 
         if ( pState->fd != -1 )
         {
             /* close the shared memory file descriptor */
             close( pState->fd );
+            pState->fd = -1;
         }
 
         /* unlink the shared memory object name */
@@ -513,7 +519,12 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
     if ( ( pState != NULL ) &&
          ( pFileName != NULL ) )
     {
-        printf("ProcessConfigFile: %s\n", pFileName );
+        /*! destroy any existing memory map if we are dynamic mapping */
+        if ( ( pState->dynamicMapping == true ) && ( pState->workbuf != NULL ) )
+        {
+            /* destroy any existing memory map */
+            (void)DestroyMemoryMap( pState );
+        }
 
         /* save the file name and the line number within that file */
         saveFileName = pState->pFileName;
@@ -545,6 +556,121 @@ static int ProcessConfigFile( LoadState *pState, char *filename )
         }
 
         free( pFileName );
+    }
+
+    return result;
+}
+
+/*==========================================================================*/
+/*  CreateMemoryMap                                                         */
+/*!
+    Create a memory map to read back output data
+
+    The CreateMemoryMap function creates a memory map for the
+    output data buffer, allowing the process to read back file output
+    created by other processes.
+
+    This function will map the shared memory object into the workbuf
+    pointer of the LoadState object.
+
+    @param[in]
+        pState
+            pointer to the LoadState structure containing the
+            necessary information for creating the memory map
+
+    @retval EINVAL invalid arguments
+    @retval EOK memory map created successfully
+    @retval EBADF bad shared memory file descriptor to map against
+    @retval other error codes as appropriate
+
+============================================================================*/
+static int CreateMemoryMap( LoadState *pState )
+{
+    int result = EINVAL;
+    size_t size;
+
+    if ( pState != NULL )
+    {
+        /* only create the memory mapping if we have a file descriptor,
+           and we don't already have a memory map */
+        if ( ( pState->fd != -1 ) && ( pState->workbuf == NULL ) )
+        {
+            /* set the size of the output buffer including space for
+             * a NUL terminator */
+            size = pState->workbufSize + 1;
+
+            /* map shared memory to process address space */
+            pState->workbuf = mmap( NULL,
+                                    size ,
+                                    PROT_WRITE | PROT_READ,
+                                    MAP_SHARED,
+                                    pState->fd,
+                                    0);
+
+            if ( pState->workbuf != MAP_FAILED )
+            {
+                result = EOK;
+            }
+            else
+            {
+                result = errno;
+            }
+        }
+        else
+        {
+            result = EBADF;
+        }
+    }
+
+    return result;
+}
+
+/*==========================================================================*/
+/*  DestroyMemoryMap                                                        */
+/*!
+    Destroy a previously created memory map
+
+    The DestroyMemoryMap function destroys a memory map previously created
+    by the CreateMemoryMap function.
+
+    This function will unmap the shared memory object from the workbuf
+    pointer of the LoadState object and clear the workbuf pointer.
+
+    @param[in]
+        pState
+            pointer to the LoadState structure containing the
+            reference to the memory map to destroy.
+
+    @retval EINVAL invalid arguments
+    @retval EOK memory map destroyed successfully, or no map existed
+    @retval other error codes as appropriate
+
+============================================================================*/
+static int DestroyMemoryMap( LoadState *pState )
+{
+    int result = EINVAL;
+
+    if ( pState != NULL )
+    {
+        if ( pState->workbuf != NULL )
+        {
+            /* Unmap the shared memory object from the virtual
+             * address space of the loadconfig application */
+            if ( munmap( pState->workbuf, pState->workbufSize+1 ) == 0 )
+            {
+                pState->workbuf = NULL;
+                result = EOK;
+            }
+            else
+            {
+                result = errno;
+            }
+        }
+        else
+        {
+            /* no memory map to destroy */
+            result = EOK;
+        }
     }
 
     return result;
@@ -585,6 +711,7 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
     char *pConfigLine;
     int rc;
     bool done = false;
+    int n;
 
     if ( ( pState != NULL ) &&
          ( pConfigData != NULL ) )
@@ -592,8 +719,6 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
         /* assume the result is ok until it is not */
         result = EOK;
 
-        /* process configuration data one line at a time
-         * until we hit a NUL character */
         while( !done )
         {
             if( pConfigData[i] == '\0' )
@@ -607,31 +732,62 @@ static int ProcessConfigData( LoadState *pState, char *pConfigData )
                 /* replace the line break with a NUL terminator*/
                 pConfigData[i] = 0;
 
-                /* clear the working buffer and reposition
-                 * the write point to the start of the buffer */
+                /* reposition the write point to the start of the buffer */
                 lseek( pState->fd, 0, SEEK_SET );
-                memset( pState->workbuf, 0, pState->workbufSize );
 
-                /* perform expansion of variables within the config line */
-                /* i.e any variables in the form ${varname} will be replaced
-                 * with their values */
-                rc = TEMPLATE_StrToFile( pState->hVarServer,
-                                         &pConfigData[lineidx],
-                                         pState->fd);
-                if ( rc == EOK )
+                /* check if there is any content in the line to process */
+                n = strlen( &pConfigData[lineidx] );
+                if ( n > 0 )
                 {
-                    /* process a configuration line */
-                    rc = ProcessConfigLine( pState, pState->workbuf );
-                    if ( rc != EOK )
+                    /* perform expansion of variables within the config line */
+                    /* i.e any variables in the form ${varname} will be replaced
+                    * with their values */
+                    rc = TEMPLATE_StrToFile( pState->hVarServer,
+                                            &pConfigData[lineidx],
+                                            pState->fd);
+                    if ( rc == EOK )
                     {
-                        LogError( pState, "Config warning" );
+                        /* NUL terminate */
+                        write( pState->fd, "\0", 1 );
+
+                        /* dynamic memory map creation (if required) */
+                        if ( pState->dynamicMapping == true )
+                        {
+                            rc = CreateMemoryMap( pState );
+                            if ( rc != EOK )
+                            {
+                                LogError( pState, "Memory Map Creation Error" );
+                                result = rc;
+                            }
+                        }
+
+                        if ( pState->workbuf != NULL )
+                        {
+                            /* process the working buffer*/
+                            rc = ProcessConfigLine( pState, pState->workbuf );
+                            if ( rc != EOK )
+                            {
+                                LogError( pState, "Config warning" );
+                                result = rc;
+                            }
+                        }
+                        else
+                        {
+                            LogError( pState, "No working buffer" );
+                            result = ENOMEM;
+                        }
+
+                        if ( pState->dynamicMapping == true )
+                        {
+                            /* destroy the memory map */
+                            (void)DestroyMemoryMap( pState );
+                        }
+                    }
+                    else
+                    {
+                        LogError( pState, "Template Processing error" );
                         result = rc;
                     }
-                }
-                else
-                {
-                    LogError( pState, "Variable Expansion error" );
-                    result = rc;
                 }
 
                 /* update the line index */
@@ -840,6 +996,7 @@ static int ProcessConfigDirective( LoadState *pState, char *pInfo )
             pointer to the configuration file name
 
     @retval EINVAL invalid arguments
+    @retval E2BIG include filename too long
     @retval EOK the directive was processed ok
 
 ============================================================================*/
@@ -860,7 +1017,6 @@ static int ProcessIncludeDirective( LoadState *pState, char *pFilename )
 
         /* recursively process a new configuration file */
         result = ProcessConfigFile( pState, pFilename );
-
     }
 
     return result;

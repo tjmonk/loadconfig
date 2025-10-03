@@ -28,7 +28,8 @@ The following directives are supported:
 
 ## Variable Interpolation
 
-The loadconfig utility supports variable interpolation in the configuration files.
+The loadconfig utility supports variable interpolation in the configuration
+files.
 Variables specified using the `${ }` notation will be resolved by the variable
 server and replaced with the variable value before the line containing
 the variable is processed.
@@ -73,7 +74,16 @@ The loadconfig utility requires the following components:
 
 The included test example below requires the following components:
 
-- varcreate : create variables from a JSON file ( https://github.com/tjmonk/varcreate )
+- varcreate : create variables from a JSON file
+              ( https://github.com/tjmonk/varcreate )
+
+## Runtime Considerations
+
+One some older Linux Kernels, the memory mapping does not work consistently,
+and data written to a file descriptor is not always available via the memory
+map.  To mitigate this, the -m command line option creates a new memory mapping
+for each processed line in the configuration files.  This has higher overhead,
+but resolves the memory mapping issue in older Linux kernels.
 
 ## Build
 
